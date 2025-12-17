@@ -18,7 +18,49 @@ impl Database {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = Connection::open(db_path)
             .context(format!("Failed to open database at {}", db_path))?;
-        Ok(Self { conn })
+
+        let db = Self { conn };
+        db.create_history_table()?;
+
+        Ok(db)
+    }
+
+    fn create_history_table(&self) -> Result<()> {
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS query_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_query_history(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT query FROM query_history ORDER BY timestamp ASC"
+        )?;
+
+        let queries = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+
+        Ok(queries)
+    }
+
+    pub fn save_query_to_history(&self, query: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO query_history (query) VALUES (?1)",
+            [query],
+        )?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn clear_history(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM query_history", [])?;
+        Ok(())
     }
 
     pub fn execute_query(&self, sql: &str) -> Result<QueryResult> {
@@ -34,8 +76,25 @@ impl Database {
             .query_map([], |row| {
                 let mut values = Vec::new();
                 for i in 0..column_count {
-                    let value: Result<String, _> = row.get(i);
-                    values.push(value.unwrap_or_else(|_| "NULL".to_string()));
+                    // Use get_ref to handle different SQLite types properly
+                    let value = match row.get_ref(i) {
+                        Ok(val_ref) => {
+                            use rusqlite::types::ValueRef;
+                            match val_ref {
+                                ValueRef::Null => "NULL".to_string(),
+                                ValueRef::Integer(i) => i.to_string(),
+                                ValueRef::Real(f) => format!("{:.2}", f),
+                                ValueRef::Text(s) => {
+                                    String::from_utf8_lossy(s).to_string()
+                                }
+                                ValueRef::Blob(b) => {
+                                    format!("<BLOB {} bytes>", b.len())
+                                }
+                            }
+                        }
+                        Err(_) => "NULL".to_string(),
+                    };
+                    values.push(value);
                 }
                 Ok(values)
             })?
@@ -156,6 +215,132 @@ impl Database {
         Ok(schema)
     }
 
+    pub fn fuzzy_search_products(&self, recommendation: &str, patterns: &[String]) -> Result<Vec<(String, String, f32)>> {
+        use crate::fuzzy::FuzzyMatcher;
+
+        let mut all_results = Vec::new();
+
+        for pattern in patterns {
+            // Search in products table (title and description)
+            let sql = "
+                SELECT DISTINCT p.title, p.vendor, p.price_min, p.description
+                FROM products p
+                WHERE p.title LIKE ?1 OR p.description LIKE ?1
+                LIMIT 20
+            ";
+
+            let mut stmt = self.conn.prepare(sql)?;
+            let rows = stmt.query_map([pattern], |row| {
+                let title: String = row.get(0)?;
+                let vendor: String = row.get(1)?;
+                let price: f64 = row.get(2)?;
+                let description: String = row.get(3).unwrap_or_default();
+
+                Ok((title, vendor, price, description))
+            })?;
+
+            for row_result in rows {
+                if let Ok((title, vendor, price, _description)) = row_result {
+                    let score = FuzzyMatcher::calculate_match_score(
+                        recommendation,
+                        &title,
+                        pattern,
+                    );
+                    let display = format!("{} | {} | ${:.2}", title, vendor, price);
+                    all_results.push((title, display, score));
+                }
+            }
+
+            // Search in tags
+            let tag_sql = "
+                SELECT DISTINCT p.title, p.vendor, p.price_min
+                FROM products p
+                JOIN product_tags pt ON p.id = pt.product_id
+                JOIN tags t ON pt.tag_id = t.id
+                WHERE t.name LIKE ?1
+                LIMIT 20
+            ";
+
+            let mut tag_stmt = self.conn.prepare(tag_sql)?;
+            let tag_rows = tag_stmt.query_map([pattern], |row| {
+                let title: String = row.get(0)?;
+                let vendor: String = row.get(1)?;
+                let price: f64 = row.get(2)?;
+
+                Ok((title, vendor, price))
+            })?;
+
+            for row_result in tag_rows {
+                if let Ok((title, vendor, price)) = row_result {
+                    // Check if we already have this product
+                    if all_results.iter().any(|(t, _, _)| t == &title) {
+                        continue;
+                    }
+
+                    let score = FuzzyMatcher::calculate_match_score(
+                        recommendation,
+                        &title,
+                        pattern,
+                    ) * 0.9; // Tag matches get slightly lower score
+
+                    let display = format!("{} | {} | ${:.2}", title, vendor, price);
+                    all_results.push((title, display, score));
+                }
+            }
+        }
+
+        Ok(all_results)
+    }
+
+    pub fn merge_and_score_results(&self, all_results: Vec<(String, String, f32)>) -> Result<QueryResult> {
+        // Deduplicate by title, keeping highest score
+        let mut best_scores: HashMap<String, (String, f32)> = HashMap::new();
+
+        for (title, display, score) in all_results {
+            best_scores
+                .entry(title.clone())
+                .and_modify(|(_, existing_score)| {
+                    if score > *existing_score {
+                        *existing_score = score;
+                    }
+                })
+                .or_insert((display, score));
+        }
+
+        // Convert to QueryResult format
+        let mut results: Vec<(String, f32)> = best_scores
+            .into_iter()
+            .map(|(_, (display, score))| (display, score))
+            .collect();
+
+        // Sort by score descending
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Limit results
+        results.truncate(50);
+
+        // Format as QueryResult
+        let columns = vec!["Product | Vendor | Price".to_string(), "Relevance".to_string()];
+        let rows: Vec<Vec<String>> = results
+            .iter()
+            .map(|(display, score)| {
+                vec![
+                    display.clone(),
+                    format!("{:.0}%", score * 100.0),
+                ]
+            })
+            .collect();
+
+        let row_count = rows.len();
+
+        Ok(QueryResult {
+            columns,
+            rows,
+            row_count,
+        })
+    }
+
+    #[allow(dead_code)]
     pub fn get_statistics(&self) -> Result<HashMap<String, usize>> {
         let mut stats = HashMap::new();
 

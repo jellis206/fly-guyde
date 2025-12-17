@@ -99,12 +99,21 @@ cargo run --release
 
 ### Controls
 
-- **Press 'i'**: Enter query mode (type your question)
-- **Type your question**: Ask anything about the fly fishing products
-- **Press Enter**: Submit your query
-- **Press Tab**: Cycle through prompting strategies
-- **Press Esc**: Cancel query input
-- **Press 'q'**: Quit the application
+**Press `?` at any time to see the full help screen!**
+
+#### Main Controls
+- **i / I**: Enter query mode (type your question)
+- **Enter**: Submit your query
+- **Esc**: Cancel query input
+- **q / Q**: Quit the application
+- **?**: Toggle help screen
+
+#### Prompting Strategy Selection
+- **1**: Basic (Zero-shot) strategy - Schema only
+- **2**: Intermediate strategy - Schema + relationships + samples
+- **3**: Advanced (Few-shot) strategy - Includes example queries
+
+The current strategy is always displayed in the header.
 
 ### Example Queries
 
@@ -121,11 +130,11 @@ Try these questions:
 
 ### Strategy Comparison
 
-Press **Tab** to cycle through the three prompting strategies and observe how they differ:
+Press **1**, **2**, or **3** to switch between the three prompting strategies and observe how they differ:
 
-- **Basic**: Fastest, but may struggle with complex queries
-- **Intermediate**: Better understanding of relationships and data types
-- **Advanced**: Most accurate, learns from examples, but uses more tokens
+- **Basic (1)**: Fastest, but may struggle with complex queries
+- **Intermediate (2)**: Better understanding of relationships and data types
+- **Advanced (3)**: Most accurate, learns from examples, but uses more tokens
 
 ## Database Schema
 
