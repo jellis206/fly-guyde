@@ -4,7 +4,7 @@ A natural language interface for querying a fly fishing product database using A
 
 ## Project Description
 
-Fly-Guyde is a Terminal User Interface (TUI) application that allows users to search through 2,117+ fly fishing products from Fly Fish Food using natural language queries. The application uses OpenAI's GPT models to convert questions into SQL queries, executes them against a SQLite database, and presents results in an intuitive interface.
+Fly-Guyde is a Terminal User Interface (TUI) application that allows users to search through 2,112 fly fishing products from Fly Fish Food using natural language queries. The application uses OpenAI's GPT models (gpt-4o for SQL generation, gpt-4o-mini for summarization) to convert questions into SQL queries, executes them against a SQLite database, and presents results in an intuitive interface.
 
 ## Features
 
@@ -51,37 +51,13 @@ Replace `sk-your-actual-key-here` with your actual OpenAI API key.
 
 ### 3. Create the Database
 
-The database files (`products.json` and `flies.db`) are not included in the repository due to their size. You need to generate them:
-
-#### Option A: Quick Setup (Recommended)
-
-If you already have `products.json` locally:
+The database (`flies.db`) is not included in the repository. Generate it with a single command:
 
 ```bash
-python3 create_db.py
+python3 seed_db.py
 ```
 
-This creates `flies.db` from the existing product data.
-
-#### Option B: Full Setup (From Scratch)
-
-To fetch fresh data from the Fly Fish Food API:
-
-```bash
-# Install Python dependencies (if needed)
-pip3 install requests
-
-# Scrape product data (takes ~1-2 minutes)
-python3 scraper.py
-
-# Create and populate database
-python3 create_db.py
-```
-
-This will:
-- Fetch all 2,117 products from the API
-- Create `products.json` (~58 MB)
-- Build `flies.db` with all tables and indexes
+This fetches all ~2,100 products from the Fly Fish Food API, cleans the data, and builds `flies.db` with all tables and indexes. Takes ~1-2 minutes.
 
 ### 4. Build the Rust Application
 
@@ -170,21 +146,18 @@ fly-guyde/
 │   ├── db.rs           # SQLite database operations
 │   ├── openai.rs       # OpenAI API integration + prompting strategies
 │   └── ui.rs           # TUI interface (ratatui)
-├── scraper.py          # API scraper for product data
-├── create_db.py        # Database creation script
+├── seed_db.py          # Single script: scrape → clean → populate DB
 ├── schema.sql          # Database schema definition
 ├── Cargo.toml          # Rust dependencies
-├── .env               # OpenAI API key (not in repo)
-├── products.json       # Product data (not in repo - regenerate)
-└── flies.db           # SQLite database (not in repo - regenerate)
+└── .env                # OpenAI API key (not in repo)
 ```
 
 ## Cost Estimates
 
-Based on GPT-3.5-turbo pricing:
-- **Typical query**: ~$0.01-0.02
-- **Testing session (10-20 queries)**: ~$0.10-0.40
-- **Extended usage**: ~$0.29-$5.00
+Based on GPT-4o (SQL generation) and GPT-4o-mini (summarization) pricing:
+- **Typical query**: ~$0.02-0.05
+- **Testing session (10-20 queries)**: ~$0.20-1.00
+- **Extended usage**: ~$0.50-5.00
 
 The Basic strategy is cheapest (fewer tokens), while Advanced uses more tokens for examples.
 
@@ -199,16 +172,9 @@ echo "OPENAI_API_KEY=sk-your-key-here" > .env
 
 ### "Failed to open database"
 
-Make sure `flies.db` exists in the project root. If not, run:
+Make sure `flies.db` exists. If not, run:
 ```bash
-python3 create_db.py
-```
-
-### "No such file: products.json"
-
-Run the scraper first:
-```bash
-python3 scraper.py
+python3 seed_db.py
 ```
 
 ### Build Errors

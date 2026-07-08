@@ -54,21 +54,19 @@ products (id, handle, title, product_type, vendor, description, price_min, price
 - "List all vendors and their product counts"
 
 ## Files Created So Far
-- ✅ scraper.py - API scraper
-- ✅ products.json - Raw product data (2,117 products)
+- ✅ seed_db.py - Single script: scrape → clean → populate DB
 - ✅ schema.sql - Database schema
-- ✅ create_db.py - Database population script
-- ✅ flies.db - Populated database
+- ✅ flies.db - Populated database (2,112 products, 5,094 variants, 206 tags)
 
 ## Files Still Needed
 - ⏳ Cargo.toml - Rust dependencies
 - ⏳ .env - OpenAI API key
-- ⏳ .gitignore - Ignore .env, target/, *.db backups
+- ⏳ .gitignore - Ignore .env, target/
 - ⏳ src/main.rs - TUI entry point
 - ⏳ src/db.rs - Database module
 - ⏳ src/openai.rs - OpenAI integration + prompting strategies
 - ⏳ src/ui.rs - Ratatui interface
-- ⏳ README.md - Setup and usage instructions
+- ⏳ README.md - Setup and usage instructions (mostly done)
 - ⏳ EXAMPLES.md - 6+ query examples with results
 - ⏳ schema.png - ERD visualization
 
@@ -106,18 +104,15 @@ The three strategies will differ in how we prompt GPT to generate SQL:
 - [ ] Documentation comparing prompting strategies
 - [ ] Each person has run with their own API key
 
-## Quick Start Commands (Future)
+## Quick Start Commands
 ```bash
-# Setup
+# Seed database (one-time, or to refresh)
+python3 seed_db.py
+
+# Build & run
 cargo build --release
 echo "OPENAI_API_KEY=sk-..." > .env
-
-# Run
-cargo run
-
-# Update database (re-scrape)
-python3 scraper.py
-python3 create_db.py
+cargo run --release
 ```
 
 ## Things to Avoid
@@ -143,6 +138,8 @@ python3 create_db.py
 - Request explanations for transparency
 - Handle malformed SQL gracefully
 - Show generated SQL to user for debugging
+- SQL generation uses `gpt-4o`
+- Summarization uses `gpt-4o-mini` (cheap, fast)
 
 ## UI/UX Principles
 - Show what's happening (loading states)

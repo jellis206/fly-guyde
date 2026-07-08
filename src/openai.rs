@@ -30,6 +30,9 @@ impl PromptStrategy {
     }
 }
 
+const SQL_MODEL: &str = "gpt-4o";
+const SUMMARY_MODEL: &str = "gpt-4o-mini";
+
 pub struct OpenAIClient {
     client: Client<async_openai::config::OpenAIConfig>,
 }
@@ -175,7 +178,7 @@ ORDER BY product_count DESC;
         ];
 
         let request = CreateChatCompletionRequestArgs::default()
-            .model("gpt-3.5-turbo")
+            .model(SQL_MODEL)
             .messages(messages)
             .temperature(0.0)
             .max_tokens(500u32)
@@ -186,6 +189,11 @@ ORDER BY product_count DESC;
             .chat()
             .create(request)
             .await
+            .map_err(|e| {
+                let err_msg = format!("OpenAI API error: {:?}", e);
+                eprintln!("{}", err_msg);
+                anyhow::anyhow!(err_msg)
+            })
             .context("Failed to generate SQL from OpenAI")?;
 
         let sql = response
@@ -266,7 +274,7 @@ ORDER BY product_count DESC;
         ];
 
         let request = CreateChatCompletionRequestArgs::default()
-            .model("gpt-3.5-turbo")
+            .model(SUMMARY_MODEL)
             .messages(messages)
             .temperature(0.7)
             .max_tokens(150u32)
@@ -277,6 +285,11 @@ ORDER BY product_count DESC;
             .chat()
             .create(request)
             .await
+            .map_err(|e| {
+                let err_msg = format!("OpenAI API error: {:?}", e);
+                eprintln!("{}", err_msg);
+                anyhow::anyhow!(err_msg)
+            })
             .context("Failed to format results")?;
 
         let summary = response
@@ -310,7 +323,7 @@ ORDER BY product_count DESC;
         ];
 
         let request = CreateChatCompletionRequestArgs::default()
-            .model("gpt-3.5-turbo")
+            .model(SUMMARY_MODEL)
             .messages(messages)
             .temperature(0.7)
             .max_tokens(200u32)
@@ -321,6 +334,11 @@ ORDER BY product_count DESC;
             .chat()
             .create(request)
             .await
+            .map_err(|e| {
+                let err_msg = format!("OpenAI API error getting recommendations: {:?}", e);
+                eprintln!("{}", err_msg);
+                anyhow::anyhow!(err_msg)
+            })
             .context("Failed to get fly recommendations from OpenAI")?;
 
         let content = response

@@ -67,7 +67,7 @@ async fn run<B: ratatui::backend::Backend>(
             break;
         }
 
-        if !app.input.is_empty() {
+        if !app.input.is_empty() && app.submitted {
             let user_question = app.input.clone();
             app.add_to_history(user_question.clone());
 

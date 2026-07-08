@@ -42,6 +42,7 @@ pub struct App {
     pub sql_scroll_offset: usize,
     pub focused_pane: FocusedPane,
     pub recommendation_fallback_enabled: bool,
+    pub submitted: bool,
 }
 
 impl App {
@@ -67,6 +68,7 @@ impl App {
             sql_scroll_offset: 0,
             focused_pane: FocusedPane::Results, // Default focus on results
             recommendation_fallback_enabled: true, // Enabled by default
+            submitted: false,
         }
     }
 
@@ -145,44 +147,34 @@ impl App {
                 KeyCode::Char('r') | KeyCode::Char('R') => {
                     self.toggle_recommendation_fallback();
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    match self.focused_pane {
-                        FocusedPane::QueryDetails => self.sql_scroll_up(),
-                        FocusedPane::Results => self.scroll_up(),
-                    }
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    match self.focused_pane {
-                        FocusedPane::QueryDetails => self.sql_scroll_down(1000),
-                        FocusedPane::Results => self.scroll_down(),
-                    }
-                }
-                KeyCode::PageUp => {
-                    match self.focused_pane {
-                        FocusedPane::QueryDetails => {
-                            for _ in 0..10 {
-                                self.sql_scroll_up();
-                            }
+                KeyCode::Up | KeyCode::Char('k') => match self.focused_pane {
+                    FocusedPane::QueryDetails => self.sql_scroll_up(),
+                    FocusedPane::Results => self.scroll_up(),
+                },
+                KeyCode::Down | KeyCode::Char('j') => match self.focused_pane {
+                    FocusedPane::QueryDetails => self.sql_scroll_down(1000),
+                    FocusedPane::Results => self.scroll_down(),
+                },
+                KeyCode::PageUp => match self.focused_pane {
+                    FocusedPane::QueryDetails => {
+                        for _ in 0..10 {
+                            self.sql_scroll_up();
                         }
-                        FocusedPane::Results => self.scroll_page_up(10),
                     }
-                }
-                KeyCode::PageDown => {
-                    match self.focused_pane {
-                        FocusedPane::QueryDetails => {
-                            for _ in 0..10 {
-                                self.sql_scroll_down(1000);
-                            }
+                    FocusedPane::Results => self.scroll_page_up(10),
+                },
+                KeyCode::PageDown => match self.focused_pane {
+                    FocusedPane::QueryDetails => {
+                        for _ in 0..10 {
+                            self.sql_scroll_down(1000);
                         }
-                        FocusedPane::Results => self.scroll_page_down(10),
                     }
-                }
-                KeyCode::Home => {
-                    match self.focused_pane {
-                        FocusedPane::QueryDetails => self.sql_scroll_offset = 0,
-                        FocusedPane::Results => self.scroll_offset = 0,
-                    }
-                }
+                    FocusedPane::Results => self.scroll_page_down(10),
+                },
+                KeyCode::Home => match self.focused_pane {
+                    FocusedPane::QueryDetails => self.sql_scroll_offset = 0,
+                    FocusedPane::Results => self.scroll_offset = 0,
+                },
                 KeyCode::End => {
                     match self.focused_pane {
                         FocusedPane::QueryDetails => {
@@ -199,7 +191,15 @@ impl App {
             },
             InputMode::Editing => match key.code {
                 KeyCode::Enter => {
+                    // Submit the query
+                    self.submitted = true;
                     self.input_mode = InputMode::Normal;
+                }
+                KeyCode::Tab => {
+                    // Exit edit mode and switch focus (don't submit)
+                    self.submitted = false;
+                    self.input_mode = InputMode::Normal;
+                    self.toggle_focus();
                 }
                 KeyCode::Char(c) => {
                     if key.modifiers.contains(KeyModifiers::CONTROL) && c == 'c' {
@@ -222,8 +222,9 @@ impl App {
                     self.history_next();
                 }
                 KeyCode::Esc => {
+                    // Cancel: keep input but don't submit
+                    self.submitted = false;
                     self.input_mode = InputMode::Normal;
-                    self.history_index = None;
                     self.status_message =
                         "Cancelled. Press 'i' to enter a query, '?' for help".to_string();
                 }
@@ -422,7 +423,7 @@ fn draw_help(f: &mut Frame) {
         "║                                                                               ║",
         "║    i / I      Enter query mode (type your question)                           ║",
         "║    Enter      Submit your query                                               ║",
-        "║    Tab        Switch focus between Query Details and Results panels           ║",
+        "║    Tab        Switch focus between panels (works in query mode too)           ║",
         "║    ↑ / ↓      Navigate query history (while editing)                          ║",
         "║    ↑ / ↓      Scroll the focused panel (in normal mode)                       ║",
         "║    j / k      Scroll the focused panel (vim-style)                            ║",
@@ -467,9 +468,8 @@ fn draw_help(f: &mut Frame) {
         "║      2. Searches the database with fuzzy matching                             ║",
         "║      3. Shows results sorted by relevance                                     ║",
         "║                                                                               ║",
-        "║    Example: \"What flies for bonefish in Hawaii?\" might not match exact      ║",
-        "║    database entries, but recommendations like \"Gotcha\" or \"Crazy Charlie\" ║",
-        "║    will find similar products with fuzzy search.                              ║",
+        "║    Example: \"bonefish in Hawaii?\" → AI recommends specific flies              ║",
+        "║    → Fuzzy search finds similar products even if exact match missing          ║",
         "║                                                                               ║",
         "╚═══════════════════════════════════════════════════════════════════════════════╝",
         "",
@@ -584,7 +584,12 @@ fn draw_sql(f: &mut Frame, app: &App, area: Rect) {
 
     // Create scroll indicator
     let scroll_indicator = if total_lines > visible_height {
-        format!(" [{}-{}/{}] [ ] to scroll ", start_line + 1, end_line, total_lines)
+        format!(
+            " [{}-{}/{}] [ ] to scroll ",
+            start_line + 1,
+            end_line,
+            total_lines
+        )
     } else {
         String::new()
     };
@@ -676,10 +681,15 @@ fn draw_results(f: &mut Frame, app: &App, area: Rect) {
                 Row::new(cells).height(1)
             });
 
+        // Use minimum width constraints for better column alignment
         let widths: Vec<Constraint> = result
             .columns
             .iter()
-            .map(|_| Constraint::Percentage((100 / result.columns.len().max(1)) as u16))
+            .map(|col| {
+                // Give each column a minimum width based on header length, with some padding
+                let min_width = col.len() + 4; // header length + padding
+                Constraint::Min(min_width as u16)
+            })
             .collect();
 
         // Create scroll indicator
